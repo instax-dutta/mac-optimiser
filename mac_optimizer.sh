@@ -33,30 +33,12 @@ spinner() {
 # Cool Header
 show_banner() {
     clear
-    echo -e "${CYAN}${BOLD}"
-    echo -e "${CYAN}${BOLD}   MAC ULTIMATE OPTIMIZER   ${NC}"
-    echo -e "${BLUE}   ======================   ${NC}"
+    echo ""
+    echo -e "${CYAN}${BOLD}     MAC ULTIMATE OPTIMIZER     ${NC}"
+    echo -e "${BLUE}     ======================     ${NC}"
     echo -e "${NC}"
     echo -e "${BLUE}      »» System Optimization & Maintenance Tool ««${NC}"
     echo -e "${BLUE}      »»       Safe Mode: ACTIVE [✔]            ««${NC}"
-    echo ""
-}
-
-# System Status
-# System Status
-show_status() {
-    # Get system info
-    local uptime_info=$(uptime | awk -F'( |,|:)+' '{if ($6~/[0-9]+/) print $6"d "$8"h "$9"m"; else print $6"h "$7"m"}')
-    local disk_info=$(df -h / | tail -1 | awk '{print $5}')
-    local mem_info=$(ps -A -o %mem | awk '{s+=$1} END {print int(s)"%"}')
-    
-    echo -e "${BLUE}   ┌──────────────────────────────────────────────────┐${NC}"
-    printf "${BLUE}   │${NC}  ${BOLD}%-46s${NC}  ${BLUE}│${NC}\n" "System Status"
-    echo -e "${BLUE}   ├──────────────────────────────────────────────────┤${NC}"
-    printf "${BLUE}   │${NC}  ${MAGENTA}%-14s${NC} : %-29s  ${BLUE}│${NC}\n" "• Uptime" "$uptime_info"
-    printf "${BLUE}   │${NC}  ${MAGENTA}%-14s${NC} : %-29s  ${BLUE}│${NC}\n" "• Disk Usage" "$disk_info used"
-    printf "${BLUE}   │${NC}  ${MAGENTA}%-14s${NC} : %-29s  ${BLUE}│${NC}\n" "• Memory" "$mem_info active"
-    echo -e "${BLUE}   └──────────────────────────────────────────────────┘${NC}"
     echo ""
 }
 
@@ -197,7 +179,6 @@ flush_print_queue() {
 # Main Menu Loop
 while true; do
     show_banner
-    show_status
     echo -e "${BOLD}Select an Optimization:${NC}"
     echo -e "  ${CYAN}1)${NC} 🧹 System Cleanup (Cache, Logs, Trash)"
     echo -e "  ${CYAN}2)${NC} 🧠 Optimize RAM (Purge Memory)"
