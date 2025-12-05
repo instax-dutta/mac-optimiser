@@ -43,11 +43,20 @@ show_banner() {
 }
 
 # System Status
+# System Status
 show_status() {
-    echo -e "${BOLD}System Status:${NC}"
-    echo -e "${MAGENTA}• Uptime:${NC} $(uptime | awk -F'( |,|:)+' '{print $6,$7",",$8,"hours,"}')"
-    echo -e "${MAGENTA}• Disk Usage:${NC} $(df -h / | tail -1 | awk '{print $5}') used"
-    echo -e "${MAGENTA}• Memory:${NC} $(ps -A -o %mem | awk '{s+=$1} END {print s "%"}') active"
+    # Get system info
+    local uptime_info=$(uptime | awk -F'( |,|:)+' '{if ($6~/[0-9]+/) print $6"d "$8"h "$9"m"; else print $6"h "$7"m"}')
+    local disk_info=$(df -h / | tail -1 | awk '{print $5}')
+    local mem_info=$(ps -A -o %mem | awk '{s+=$1} END {print int(s)"%"}')
+    
+    echo -e "${BLUE}   ┌──────────────────────────────────────────────────┐${NC}"
+    printf "${BLUE}   │${NC}  ${BOLD}%-46s${NC}  ${BLUE}│${NC}\n" "System Status"
+    echo -e "${BLUE}   ├──────────────────────────────────────────────────┤${NC}"
+    printf "${BLUE}   │${NC}  ${MAGENTA}%-14s${NC} : %-29s  ${BLUE}│${NC}\n" "• Uptime" "$uptime_info"
+    printf "${BLUE}   │${NC}  ${MAGENTA}%-14s${NC} : %-29s  ${BLUE}│${NC}\n" "• Disk Usage" "$disk_info used"
+    printf "${BLUE}   │${NC}  ${MAGENTA}%-14s${NC} : %-29s  ${BLUE}│${NC}\n" "• Memory" "$mem_info active"
+    echo -e "${BLUE}   └──────────────────────────────────────────────────┘${NC}"
     echo ""
 }
 
