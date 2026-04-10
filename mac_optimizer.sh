@@ -17,24 +17,87 @@ NC='\033[0m' # No Color
 # Global state
 DRY_RUN=false
 BATCH_MODE=false
+AUTO_CONFIRM=false
+BACKUP_MODE=false
 LOG_FILE="$HOME/.mac_optimizer.log"
 
 # Detect macOS version
 OS_MAJOR=$(sw_vers -productVersion | cut -d. -f1)
 OS_MINOR=$(sw_vers -productVersion | cut -d. -f2)
 OS_NAME=$(sw_vers -productName)
-DARWIN_VERSION=$(uname -r | cut -d. -f1)
 
-# Parse --dry-run flag
+# Version gating helper
+require_min_version() {
+    local min_major=$1
+    if [ "$OS_MAJOR" -lt "$min_major" ]; then
+        echo -e "${YELLOW}[!] Skipped — requires macOS $min_major+${NC}"
+        return 1
+    fi
+    return 0
+}
+
+# Help function
+show_help() {
+    echo "macOS Ultimate Optimizer v2.1.0"
+    echo ""
+    echo "Usage: ./mac_optimizer.sh [--dry-run] [--backup] [--yes] [--help] [--version]"
+    echo ""
+    echo "Options:"
+    echo "  --dry-run    Show what would be done without making changes"
+    echo "  --backup     Move files to backup instead of deleting them"
+    echo "  --yes, -y    Auto-confirm all prompts (non-interactive mode)"
+    echo "  --help       Show this help message and exit"
+    echo "  --version    Show version information and exit"
+    echo ""
+    echo "Examples:"
+    echo "  ./mac_optimizer.sh              # Interactive mode"
+    echo "  ./mac_optimizer.sh --dry-run    # Test run"
+    echo "  ./mac_optimizer.sh --yes        # Non-interactive mode"
+    echo "  ./mac_optimizer.sh --backup     # Backup files instead of deleting"
+}
+
+# Parse command line flags
 for arg in "$@"; do
-    [[ "$arg" == "--dry-run" ]] && DRY_RUN=true
+    case "$arg" in
+        --dry-run) DRY_RUN=true ;;
+        --yes|-y) AUTO_CONFIRM=true ;;
+        --backup) BACKUP_MODE=true ;;
+        --help) show_help; exit 0 ;;
+        --version) echo "mac_optimizer v2.1.0"; exit 0 ;;
+    esac
 done
 
-# Logging function - every action recorded
+# Check minimum macos version
+require_min_version 12 || { echo "This script requires macOS 12 or later"; exit 1; }
+show_help() {
+    echo "macOS Ultimate Optimizer v2.1.0"
+    echo ""
+    echo "Usage: ./mac_optimizer.sh [--dry-run] [--backup] [--yes] [--help] [--version]"
+    echo ""
+    echo "Options:"
+    echo "  --dry-run    Show what would be done without making changes"
+    echo "  --backup     Move files to backup instead of deleting them"
+    echo "  --yes, -y    Auto-confirm all prompts (non-interactive mode)"
+    echo "  --help       Show this help message and exit"
+    echo "  --version    Show version information and exit"
+    echo ""
+    echo "Examples:"
+    echo "  ./mac_optimizer.sh              # Interactive mode"
+    echo "  ./mac_optimizer.sh --dry-run    # Test run"
+    echo "  ./mac_optimizer.sh --yes        # Non-interactive mode"
+    echo "  ./mac_optimizer.sh --backup     # Backup files instead of deleting"
+}
+
+# Logging function - every action recorded with log rotation
 log_action() {
     local desc="$1"
     local status="$2"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$([ "$status" -eq 0 ] && echo OK || echo FAIL)] $desc" >> "$LOG_FILE"
+    
+    # Rotate log if exceeds 500KB
+    if [ -f "$LOG_FILE" ] && [ "$(stat -f%z "$LOG_FILE")" -gt 512000 ]; then
+        mv "$LOG_FILE" "${LOG_FILE}.1"
+    fi
 }
 
 # Version gating helper
@@ -47,19 +110,7 @@ require_min_version() {
     return 0
 }
 
-# Fixed spinner - uses kill -0 for PID check (POSIX-correct)
-spinner() {
-    local pid=$1
-    local spinstr
-    spinstr=$(printf '|/-\x5c')
-    while kill -0 "$pid" 2>/dev/null; do
-        printf " [%c]  " "$spinstr"
-        spinstr=${spinstr#?}${spinstr%"${spinstr#?}"}
-        sleep 0.1
-        printf "\b\b\b\b\b\b"
-    done
-    printf "      \b\b\b\b\b\b"
-}
+
 
 # run_cmd - replaces print_status pattern with correct exit code handling
 run_cmd() {
@@ -87,7 +138,7 @@ show_banner() {
     echo -e "${CYAN}${BOLD}MAC ULTIMATE OPTIMIZER${NC}"
     echo -e "${CYAN}======================${NC}"
     echo ""
-    echo -e "System:  ${BLUE}macOS $OS_NAME $OS_MAJOR.$OS_MINOR (darwin $DARWIN_VERSION)${NC}"
+    echo -e "System:  ${BLUE}macOS $OS_NAME $OS_MAJOR.$OS_MINOR${NC}"
     echo -e "Log:     ${BLUE}$LOG_FILE${NC}"
     echo -e "Mode:    ${BLUE}$([ "$DRY_RUN" = true ] && echo "--dry-run" || echo "LIVE")${NC}"
     echo ""
@@ -99,16 +150,36 @@ cleanup_system() {
     echo -e "${YELLOW}${BOLD}WARNING: This will clear caches and logs.${NC}"
     echo -e "${YELLOW}It is HIGHLY RECOMMENDED to close all running applications first.${NC}"
     echo ""
-    if [ "$DRY_RUN" = false ]; then
+    if [ "$DRY_RUN" = false ] && [ "$AUTO_CONFIRM" = false ]; then
         read -r -p "Press [Enter] to continue or [Ctrl+C] to cancel..."
+    elif [ "$DRY_RUN" = false ] && [ "$AUTO_CONFIRM" = true ]; then
+        echo -e "${YELLOW}[AUTO-CONFIRM] Proceeding with cleanup...${NC}"
     fi
+    
+    # Setup backup directory if --backup flag is used
+    local backup_dir=""
+    if [ "$BACKUP_MODE" = true ]; then
+        backup_dir="/tmp/mac_optimizer_backup_$(date +%s)"
+        mkdir -p "$backup_dir"
+        echo -e "${CYAN}Backup mode: Files will be moved to $backup_dir${NC}"
+    fi
+    
+    # Get initial free disk space for summary
+    local initial_free
+    initial_free=$(df -h / | awk 'NR==2 {print $4}')
     
     # User Cache - show size first
     if [ -d "$HOME/Library/Caches" ] && [ -n "$(ls -A "$HOME/Library/Caches" 2>/dev/null)" ]; then
         local cache_size
         cache_size=$(du -sh "$HOME/Library/Caches" 2>/dev/null | cut -f1)
         echo -e "${CYAN}User Cache (~${cache_size}):${NC}"
-        run_cmd "Cleaning User Cache" rm -rf "$HOME/Library/Caches"/*
+        if [ "$DRY_RUN" = true ]; then
+            run_cmd "Cleaning User Cache" find "$HOME/Library/Caches" -mindepth 1 -print
+        elif [ "$BACKUP_MODE" = true ]; then
+            run_cmd "Cleaning User Cache" find "$HOME/Library/Caches" -mindepth 1 -exec mv -t "$backup_dir" {} + 2>/dev/null || true
+        else
+            run_cmd "Cleaning User Cache" find "$HOME/Library/Caches" -mindepth 1 -delete
+        fi
     fi
     
     # User Logs only - NEVER touch /private/var/log
@@ -117,7 +188,13 @@ cleanup_system() {
         local logs_size
         logs_size=$(du -sh "$HOME/Library/Logs" 2>/dev/null | cut -f1)
         echo -e "${CYAN}User Logs (~${logs_size}):${NC}"
-        run_cmd "Cleaning User Logs" rm -rf "$HOME/Library/Logs"/*
+        if [ "$DRY_RUN" = true ]; then
+            run_cmd "Cleaning User Logs" find "$HOME/Library/Logs" -mindepth 1 -print
+        elif [ "$BACKUP_MODE" = true ]; then
+            run_cmd "Cleaning User Logs" find "$HOME/Library/Logs" -mindepth 1 -exec mv -t "$backup_dir" {} + 2>/dev/null || true
+        else
+            run_cmd "Cleaning User Logs" find "$HOME/Library/Logs" -mindepth 1 -delete
+        fi
     fi
     
     # Trash - show size first
@@ -125,7 +202,13 @@ cleanup_system() {
         local trash_size
         trash_size=$(du -sh "$HOME/.Trash" 2>/dev/null | cut -f1)
         echo -e "${CYAN}Trash (~${trash_size}):${NC}"
-        run_cmd "Emptying Trash" rm -rf "$HOME/.Trash"/*
+        if [ "$DRY_RUN" = true ]; then
+            run_cmd "Emptying Trash" find "$HOME/.Trash" -mindepth 1 -print
+        elif [ "$BACKUP_MODE" = true ]; then
+            run_cmd "Emptying Trash" find "$HOME/.Trash" -mindepth 1 -exec mv -t "$backup_dir" {} + 2>/dev/null || true
+        else
+            run_cmd "Emptying Trash" find "$HOME/.Trash" -mindepth 1 -delete
+        fi
     fi
     
     # Xcode DerivedData
@@ -133,11 +216,57 @@ cleanup_system() {
         local xcode_size
         xcode_size=$(du -sh "$HOME/Library/Developer/Xcode/DerivedData" 2>/dev/null | cut -f1)
         echo -e "${CYAN}Xcode DerivedData (~${xcode_size}):${NC}"
-        run_cmd "Cleaning Xcode DerivedData" rm -rf "$HOME/Library/Developer/Xcode/DerivedData"/*
+        if [ "$DRY_RUN" = true ]; then
+            run_cmd "Cleaning Xcode DerivedData" find "$HOME/Library/Developer/Xcode/DerivedData" -mindepth 1 -print
+        elif [ "$BACKUP_MODE" = true ]; then
+            run_cmd "Cleaning Xcode DerivedData" find "$HOME/Library/Developer/Xcode/DerivedData" -mindepth 1 -exec mv -t "$backup_dir" {} + 2>/dev/null || true
+        else
+            run_cmd "Cleaning Xcode DerivedData" find "$HOME/Library/Developer/Xcode/DerivedData" -mindepth 1 -delete
+        fi
     fi
-
+    
+    # App-specific cache cleaning
+    local app_caches=(
+        "Google Chrome:$HOME/Library/Caches/Google/Chrome"
+        "Chromium:$HOME/Library/Caches/Chromium"
+        "Docker:$HOME/Library/Containers/com.docker.docker/Data/vms"
+        "npm:$HOME/.npm/_cacache"
+        "Yarn:$HOME/Library/Caches/Yarn"
+        "pip:$HOME/Library/Caches/pip"
+        "CocoaPods:$HOME/Library/Caches/CocoaPods"
+        "Gradle:$HOME/.gradle/caches"
+    )
+    
+    for cache_pair in "${app_caches[@]}"; do
+        IFS=':' read -r app_name cache_path <<< "$cache_pair"
+        if [ -d "$cache_path" ] && [ -n "$(ls -A "$cache_path" 2>/dev/null)" ]; then
+            local app_cache_size
+            app_cache_size=$(du -sh "$cache_path" 2>/dev/null | cut -f1)
+            echo -e "${CYAN}$app_name Cache (~${app_cache_size}):${NC}"
+            if [ "$DRY_RUN" = true ]; then
+                run_cmd "Cleaning $app_name Cache" find "$cache_path" -mindepth 1 -print
+            elif [ "$BACKUP_MODE" = true ]; then
+                run_cmd "Cleaning $app_name Cache" find "$cache_path" -mindepth 1 -exec mv -t "$backup_dir" {} + 2>/dev/null || true
+            else
+                run_cmd "Cleaning $app_name Cache" find "$cache_path" -mindepth 1 -delete
+            fi
+        fi
+    done
+    
+    # Get final free disk space for summary
+    local final_free
+    final_free=$(df -h / | awk 'NR==2 {print $4}')
+    
+    # Calculate approximate freed space (rough estimate)
     echo -e "\n${GREEN}✨ System Cleanup Complete!${NC}"
-    [[ "$BATCH_MODE" == false ]] && read -r -p "Press Enter to return..."
+    echo -e "${CYAN}Freed approx. space - disk free before: $initial_free, after: $final_free${NC}"
+    if [ "$BATCH_MODE" = false ]; then
+        if [ "$DRY_RUN" = false ] && [ "$AUTO_CONFIRM" = false ]; then
+            read -r -p "Press Enter to return..."
+        elif [ "$DRY_RUN" = false ] && [ "$AUTO_CONFIRM" = true ]; then
+            echo -e "${YELLOW}[AUTO-CONFIRM] Continuing...${NC}"
+        fi
+    fi
 }
 
 # 2. Memory Optimization - replaced purge with informational display
@@ -165,7 +294,20 @@ optimize_memory() {
     echo -e "${YELLOW}Note: macOS manages memory automatically. 'Inactive' memory is${NC}"
     echo -e "${YELLOW}reused instantly — a large inactive pool is healthy, not wasteful.${NC}"
     echo -e "${YELLOW}'sudo purge' is counterproductive on macOS 10.11+ and has been removed.${NC}"
-    [[ "$BATCH_MODE" == false ]] && read -r -p "Press Enter to return..."
+    
+    # Add top RAM-consuming processes
+    echo ""
+    echo -e "${CYAN}Top 5 processes by memory (RSS):${NC}"
+    echo -e "${BLUE}PID    RSS(GB)    COMMAND${NC}"
+    ps -eo pid,rss,comm -r | awk 'NR>1 {printf "%-6s %-8.2f %s\n", $1, $2/1024/1024, $3}' | head -5
+    
+    if [ "$BATCH_MODE" = false ]; then
+        if [ "$DRY_RUN" = false ] && [ "$AUTO_CONFIRM" = false ]; then
+            read -r -p "Press Enter to return..."
+        elif [ "$DRY_RUN" = false ] && [ "$AUTO_CONFIRM" = true ]; then
+            echo -e "${YELLOW}[AUTO-CONFIRM] Continuing...${NC}"
+        fi
+    fi
 }
 
 # 3. Network Optimization
@@ -177,25 +319,38 @@ optimize_network() {
     # WiFi power save - version gated
     if [ "$OS_MAJOR" -ge 13 ]; then
         echo -e "${YELLOW}[!] WiFi power management: managed by OS on macOS $OS_MAJOR+. Skipping.${NC}"
+    elif [ "$OS_MAJOR" -ge 12 ]; then
+        # For macOS 12 (Monterey), we can still adjust WiFi power settings
+        sudo -v || { echo "sudo required"; return 1; }
+        run_cmd "Disabling WiFi Power Save" sudo defaults write \
+            /Library/Preferences/com.apple.wifi.plist WiFiPowerSave -int 0
     else
-        run_cmd "Disabling WiFi Power Save" sudo -v && sudo defaults write \
+        sudo -v || { echo "sudo required"; return 1; }
+        run_cmd "Disabling WiFi Power Save" sudo defaults write \
             /Library/Preferences/com.apple.wifi.plist WiFiPowerSave -int 0
     fi
 
     # DNS flush
-    run_cmd "Flushing DNS cache" sudo -v && dscacheutil -flushcache && killall -HUP mDNSResponder 2>/dev/null || true
+    sudo -v || { echo "sudo required"; return 1; }
+    run_cmd "Flushing DNS cache" dscacheutil -flushcache && killall -HUP mDNSResponder 2>/dev/null || true
 
     # Network interface reset - with explicit warning and confirmation
     echo ""
     echo -e "${RED}WARNING: This will drop all active connections — SSH sessions,${NC}"
     echo -e "${RED}downloads, VPNs, and any active transfers on en0.${NC}"
     if [ "$DRY_RUN" = false ]; then
-        read -r -p "Type 'yes' to continue, anything else to skip: " net_confirm
+        if [ "$AUTO_CONFIRM" = true ]; then
+            net_confirm="yes"
+            echo -e "${YELLOW}[AUTO-CONFIRM] Proceeding with network reset...${NC}"
+        else
+            read -r -p "Type 'yes' to continue, anything else to skip: " net_confirm
+        fi
         if [[ "$net_confirm" == "yes" ]]; then
-            run_cmd "Bringing en0 down" sudo -v && ifconfig en0 down
+            sudo -v || { echo "sudo required"; return 1; }
+            run_cmd "Bringing en0 down" ifconfig en0 down
             sleep 1
-            run_cmd "Bringing en0 up" sudo -v && ifconfig en0 up
-            run_cmd "Renewing DHCP" sudo -v && ipconfig set en0 DHCP
+            run_cmd "Bringing en0 up" ifconfig en0 up
+            run_cmd "Renewing DHCP" ipconfig set en0 DHCP
         else
             echo -e "${YELLOW}[!] Network reset skipped.${NC}"
         fi
@@ -205,12 +360,22 @@ optimize_network() {
 
     # TCP sysctl tuning - removed non-existent captive_portal key
     echo ""
-    run_cmd "Setting TCP send buffer" sudo -v && sysctl -w net.inet.tcp.sendspace=1048576
-    run_cmd "Setting TCP recv buffer" sudo -v && sysctl -w net.inet.tcp.recvspace=1048576
-    run_cmd "Setting IP TTL to 64" sudo -v && sysctl -w net.inet.ip.ttl=64
+    sudo -v || { echo "sudo required"; return 1; }
+    run_cmd "Setting TCP send buffer" sysctl -w net.inet.tcp.sendspace=1048576
+    run_cmd "Setting TCP recv buffer" sysctl -w net.inet.tcp.recvspace=1048576
+    run_cmd "Setting IP TTL to 64" sysctl -w net.inet.ip.ttl=64
+
+    # Warn that sysctl changes are temporary
+    echo -e "${YELLOW}[!] Note: sysctl changes are lost on reboot. To make permanent, add them to /etc/sysctl.conf.${NC}"
 
     echo -e "\n${GREEN}🚀 Network Boosted!${NC}"
-    [[ "$BATCH_MODE" == false ]] && read -r -p "Press Enter to return..."
+    if [ "$BATCH_MODE" = false ]; then
+        if [ "$DRY_RUN" = false ] && [ "$AUTO_CONFIRM" = false ]; then
+            read -r -p "Press Enter to return..."
+        elif [ "$DRY_RUN" = false ] && [ "$AUTO_CONFIRM" = true ]; then
+            echo -e "${YELLOW}[AUTO-CONFIRM] Continuing...${NC}"
+        fi
+    fi
 }
 
 # 4. Maintenance Scripts
@@ -220,26 +385,45 @@ run_maintenance() {
     echo -e "${YELLOW}(This might take a few moments)${NC}"
     echo ""
     
-    # Version note for Ventura+
-    if [ "$OS_MAJOR" -ge 13 ]; then
+    # Version note for Monterey+
+    if [ "$OS_MAJOR" -ge 12 ]; then
         echo -e "${YELLOW}Note: On macOS $OS_MAJOR, periodic scripts run automatically via launchd.${NC}"
         echo -e "${YELLOW}Running manually is harmless but may not add meaningful benefit.${NC}"
         echo ""
     fi
     
-    run_cmd "Running daily maintenance" sudo -v && periodic daily
-    run_cmd "Running weekly maintenance" sudo -v && periodic weekly
-    run_cmd "Running monthly maintenance" sudo -v && periodic monthly
-
+    sudo -v || { echo "sudo required"; return 1; }
+    run_cmd "Running daily maintenance" periodic daily
+    run_cmd "Running weekly maintenance" periodic weekly
+    run_cmd "Running monthly maintenance" periodic monthly
+    
     echo -e "\n${GREEN}✨ Maintenance Complete!${NC}"
-    [[ "$BATCH_MODE" == false ]] && read -r -p "Press Enter to return..."
+    if [ "$BATCH_MODE" = false ]; then
+        if [ "$DRY_RUN" = false ] && [ "$AUTO_CONFIRM" = false ]; then
+            read -r -p "Press Enter to return..."
+        elif [ "$DRY_RUN" = false ] && [ "$AUTO_CONFIRM" = true ]; then
+            echo -e "${YELLOW}[AUTO-CONFIRM] Continuing...${NC}"
+        fi
+    fi
 }
 
 # 5. Flush Print Queue - fixed command syntax
 flush_print_queue() {
     show_banner
-    run_cmd "Cancelling all print jobs" cancel -a
-    [[ "$BATCH_MODE" == false ]] && read -r -p "Press Enter to return..."
+    # Check if we need sudo for cancel command
+    if ! cancel -a &>/dev/null; then
+        sudo -v || { echo "sudo required"; return 1; }
+        run_cmd "Cancelling all print jobs" sudo cancel -a
+    else
+        run_cmd "Cancelling all print jobs" cancel -a
+    fi
+    if [ "$BATCH_MODE" = false ]; then
+        if [ "$DRY_RUN" = false ] && [ "$AUTO_CONFIRM" = false ]; then
+            read -r -p "Press Enter to return..."
+        elif [ "$DRY_RUN" = false ] && [ "$AUTO_CONFIRM" = true ]; then
+            echo -e "${YELLOW}[AUTO-CONFIRM] Continuing...${NC}"
+        fi
+    fi
 }
 
 # 6. Reindex Spotlight
@@ -248,16 +432,28 @@ reindex_spotlight() {
     echo -e "${YELLOW}Warning: Reindexing Spotlight can take a while and use high CPU.${NC}"
     echo -e "${YELLOW}Only do this if your search is broken.${NC}"
     if [ "$DRY_RUN" = false ]; then
-        read -r -p "Are you sure? (y/n): " choice
+        if [ "$AUTO_CONFIRM" = true ]; then
+            choice="y"
+            echo -e "${YELLOW}[AUTO-CONFIRM] Proceeding with Spotlight reindex...${NC}"
+        else
+            read -r -p "Are you sure? (y/n): " choice
+        fi
         if [[ "$choice" =~ ^[Yy]$ ]]; then
-            run_cmd "Requesting Spotlight reindex" sudo -v && mdutil -E /
+            sudo -v || { echo "sudo required"; return 1; }
+            run_cmd "Requesting Spotlight reindex" mdutil -E /
         else
             echo "Cancelled."
         fi
     else
         echo -e "${YELLOW}[DRY] Would prompt for Spotlight reindex confirmation${NC}"
     fi
-    [[ "$BATCH_MODE" == false ]] && read -r -p "Press Enter to return..."
+    if [ "$BATCH_MODE" = false ]; then
+        if [ "$DRY_RUN" = false ] && [ "$AUTO_CONFIRM" = false ]; then
+            read -r -p "Press Enter to return..."
+        elif [ "$DRY_RUN" = false ] && [ "$AUTO_CONFIRM" = true ]; then
+            echo -e "${YELLOW}[AUTO-CONFIRM] Continuing...${NC}"
+        fi
+    fi
 }
 
 # 7. Show Log (new option 8 in menu, index 7 here)
@@ -270,16 +466,24 @@ show_log() {
     else
         echo -e "${YELLOW}No log file found yet. Run an optimization first.${NC}"
     fi
-    [[ "$BATCH_MODE" == false ]] && read -r -p "Press Enter to return..."
+    if [ "$BATCH_MODE" = false ]; then
+        if [ "$DRY_RUN" = false ] && [ "$AUTO_CONFIRM" = false ]; then
+            read -r -p "Press Enter to return..."
+        elif [ "$DRY_RUN" = false ] && [ "$AUTO_CONFIRM" = true ]; then
+            echo -e "${YELLOW}[AUTO-CONFIRM] Continuing...${NC}"
+        fi
+    fi
 }
 
 # Run ALL (Option 7)
 run_all() {
     BATCH_MODE=true
-    cleanup_system
-    optimize_memory
-    optimize_network
-    run_maintenance
+    (
+        cleanup_system
+        optimize_memory
+        optimize_network
+        run_maintenance
+    ) || BATCH_MODE=false
     BATCH_MODE=false
     echo -e "\n${GREEN}✨ All Optimizations Complete!${NC}"
     read -r -p "Press Enter to return..."

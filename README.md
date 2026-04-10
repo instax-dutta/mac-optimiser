@@ -2,7 +2,7 @@
 
 [![Bash](https://img.shields.io/badge/Language-Bash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://www.apple.com/macos/)
-[![macOS](https://img.shields.io/badge/Supported-macOS%2013--15-Ventura%20to%20Sequoia-333333?style=for-the-badge)](#compatibility)
+[![macOS](https://img.shields.io/badge/Supported-macOS%2012--15-Monterey%20to%20Sequoia-333333?style=for-the-badge)](#compatibility)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 [![ShellCheck](https://img.shields.io/badge/ShellCheck-Pass-green?style=for-the-badge)](#code-quality)
 
@@ -12,7 +12,7 @@
 
 ## Description
 
-**macOS Ultimate Optimizer** is a menu-driven Bash script that safely cleans caches, manages memory, optimizes network settings, and runs macOS maintenance scripts on your Mac. Designed for macOS Ventura (13), Sonoma (14), and Sequoia (15).
+**macOS Ultimate Optimizer** is a menu-driven Bash script that safely cleans caches, manages memory, optimizes network settings, and runs macOS maintenance scripts on your Mac. Designed for macOS Monterey (12), Ventura (13), Sonoma (14), and Sequoia (15).
 
 ### What makes it production-quality?
 
@@ -44,6 +44,7 @@
 
 | macOS Version | Code Name | Supported |
 |---------------|-----------|-----------|
+| 12 | Monterey | ✅ Yes |
 | 13 | Ventura | ✅ Yes |
 | 14 | Sonoma | ✅ Yes |
 | 15 | Sequoia | ✅ Yes |
@@ -120,27 +121,32 @@ Or view recent entries from the menu (Option 8).
 
 ---
 
-## What Was Changed (v2.0 Rewrite)
+## What Was Changed (v2.1.0 Rewrite)
 
 ### Fixed Issues
 
 | Issue | Fix |
 |-------|-----|
 | Incorrect exit code checking | Replaced `print_status` with proper `run_cmd` function |
-| Memory purge | Removed `sudo purge` (counterproductive on modern macOS) |
-| System log deletion | Changed to user logs only (`~/Library/Logs`) |
-| Invalid sysctl keys | Removed non-existent `net.inet.captive_portal` |
-| Print queue command | Fixed `cancel -a -` → `cancel -a` |
-| Fragile spinner | Replaced grep with `kill -0` for POSIX-correct PID check |
+| sudo -v && chaining anti-pattern | Fixed by calling sudo -v once per function |
+| set -euo pipefail + run_cmd non-zero exit | Wrapped non-critical run_cmd calls with || true |
+| Glob expansion in run_cmd arguments | Replaced with safe find -delete forms |
+| BATCH_MODE global state not reset | Refactored run_all to use subshell |
+| Spinner function unused | Removed unused spinner() function |
+| DARWIN_VERSION variable unused | Removed unused variable |
 
-### New Features
+### New Features (v2.1.0)
 
-- `--dry-run` flag for testing
-- Activity logging to `~/.mac_optimizer.log`
-- macOS version detection and gating
-- Size display before cleanup operations
-- Explicit confirmations for destructive operations
-- ShellCheck compliance with zero warnings
+- `--backup` flag to move files to backup instead of deleting
+- `--yes` / `-y` flag for non-interactive mode
+- `--version` flag to show version information
+- Disk space freed summary after cleanup
+- App-specific cache cleaning (Chrome, Docker, npm, etc.)
+- Memory Report: top RAM-consuming processes
+- Log rotation when log exceeds 500KB
+- Renamed menu option 2 to "Memory Pressure Report"
+- Added macOS 12 (Monterey) support
+- Sysctl changes warning about temporary nature
 
 ---
 
