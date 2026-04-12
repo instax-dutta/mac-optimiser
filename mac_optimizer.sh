@@ -56,44 +56,12 @@ show_help() {
     echo "  ./mac_optimizer.sh --backup     # Backup files instead of deleting"
 }
 
-# Parse command line flags
-for arg in "$@"; do
-    case "$arg" in
-        --dry-run) DRY_RUN=true ;;
-        --yes|-y) AUTO_CONFIRM=true ;;
-        --backup) BACKUP_MODE=true ;;
-        --help) show_help; exit 0 ;;
-        --version) echo "mac_optimizer v2.1.0"; exit 0 ;;
-    esac
-done
-
-# Check minimum macos version
-require_min_version 12 || { echo "This script requires macOS 12 or later"; exit 1; }
-show_help() {
-    echo "macOS Ultimate Optimizer v2.1.0"
-    echo ""
-    echo "Usage: ./mac_optimizer.sh [--dry-run] [--backup] [--yes] [--help] [--version]"
-    echo ""
-    echo "Options:"
-    echo "  --dry-run    Show what would be done without making changes"
-    echo "  --backup     Move files to backup instead of deleting them"
-    echo "  --yes, -y    Auto-confirm all prompts (non-interactive mode)"
-    echo "  --help       Show this help message and exit"
-    echo "  --version    Show version information and exit"
-    echo ""
-    echo "Examples:"
-    echo "  ./mac_optimizer.sh              # Interactive mode"
-    echo "  ./mac_optimizer.sh --dry-run    # Test run"
-    echo "  ./mac_optimizer.sh --yes        # Non-interactive mode"
-    echo "  ./mac_optimizer.sh --backup     # Backup files instead of deleting"
-}
-
 # Logging function - every action recorded with log rotation
 log_action() {
     local desc="$1"
     local status="$2"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$([ "$status" -eq 0 ] && echo OK || echo FAIL)] $desc" >> "$LOG_FILE"
-    
+
     # Rotate log if exceeds 500KB
     if [ -f "$LOG_FILE" ] && [ "$(stat -f%z "$LOG_FILE")" -gt 512000 ]; then
         mv "$LOG_FILE" "${LOG_FILE}.1"
@@ -109,6 +77,20 @@ require_min_version() {
     fi
     return 0
 }
+
+# Parse command line flags
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=true ;;
+        --yes|-y) AUTO_CONFIRM=true ;;
+        --backup) BACKUP_MODE=true ;;
+        --help) show_help; exit 0 ;;
+        --version) echo "mac_optimizer v2.1.0"; exit 0 ;;
+    esac
+done
+
+# Check minimum macos version
+require_min_version 12 || { echo "This script requires macOS 12 or later"; exit 1; }
 
 
 
@@ -315,24 +297,21 @@ optimize_network() {
     show_banner
     echo -e "${BOLD}Network Booster${NC}"
     echo ""
-    
+
+    # Require sudo once at the top since multiple operations need it
+    sudo -v || { echo "sudo required"; return 1; }
+
     # WiFi power save - version gated
     if [ "$OS_MAJOR" -ge 13 ]; then
         echo -e "${YELLOW}[!] WiFi power management: managed by OS on macOS $OS_MAJOR+. Skipping.${NC}"
-    elif [ "$OS_MAJOR" -ge 12 ]; then
-        # For macOS 12 (Monterey), we can still adjust WiFi power settings
-        sudo -v || { echo "sudo required"; return 1; }
-        run_cmd "Disabling WiFi Power Save" sudo defaults write \
-            /Library/Preferences/com.apple.wifi.plist WiFiPowerSave -int 0
     else
-        sudo -v || { echo "sudo required"; return 1; }
         run_cmd "Disabling WiFi Power Save" sudo defaults write \
             /Library/Preferences/com.apple.wifi.plist WiFiPowerSave -int 0
     fi
 
-    # DNS flush
-    sudo -v || { echo "sudo required"; return 1; }
-    run_cmd "Flushing DNS cache" dscacheutil -flushcache && killall -HUP mDNSResponder 2>/dev/null || true
+    # DNS flush - split into two commands
+    run_cmd "Flushing DNS cache" dscacheutil -flushcache
+    run_cmd "Restarting mDNSResponder" killall -HUP mDNSResponder || true
 
     # Network interface reset - with explicit warning and confirmation
     echo ""
@@ -346,11 +325,10 @@ optimize_network() {
             read -r -p "Type 'yes' to continue, anything else to skip: " net_confirm
         fi
         if [[ "$net_confirm" == "yes" ]]; then
-            sudo -v || { echo "sudo required"; return 1; }
-            run_cmd "Bringing en0 down" ifconfig en0 down
+            run_cmd "Bringing en0 down" sudo ifconfig en0 down
             sleep 1
-            run_cmd "Bringing en0 up" ifconfig en0 up
-            run_cmd "Renewing DHCP" ipconfig set en0 DHCP
+            run_cmd "Bringing en0 up" sudo ifconfig en0 up
+            run_cmd "Renewing DHCP" sudo ipconfig set en0 DHCP
         else
             echo -e "${YELLOW}[!] Network reset skipped.${NC}"
         fi
@@ -360,10 +338,9 @@ optimize_network() {
 
     # TCP sysctl tuning - removed non-existent captive_portal key
     echo ""
-    sudo -v || { echo "sudo required"; return 1; }
-    run_cmd "Setting TCP send buffer" sysctl -w net.inet.tcp.sendspace=1048576
-    run_cmd "Setting TCP recv buffer" sysctl -w net.inet.tcp.recvspace=1048576
-    run_cmd "Setting IP TTL to 64" sysctl -w net.inet.ip.ttl=64
+    run_cmd "Setting TCP send buffer" sudo sysctl -w net.inet.tcp.sendspace=1048576
+    run_cmd "Setting TCP recv buffer" sudo sysctl -w net.inet.tcp.recvspace=1048576
+    run_cmd "Setting IP TTL to 64" sudo sysctl -w net.inet.ip.ttl=64
 
     # Warn that sysctl changes are temporary
     echo -e "${YELLOW}[!] Note: sysctl changes are lost on reboot. To make permanent, add them to /etc/sysctl.conf.${NC}"

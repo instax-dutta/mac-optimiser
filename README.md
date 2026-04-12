@@ -29,8 +29,8 @@
 
 | # | Feature | Description |
 |---|---------|-------------|
-| 1 | **System Cleanup** | Clears user caches, logs, trash, and Xcode DerivedData (shows size before deleting). |
-| 2 | **Memory Pressure Report** | Displays VM statistics (Free, Active, Inactive, Wired, Compressed) — replaces counterproductive `purge`. |
+| 1 | **System Cleanup** | Clears user caches, logs, trash, Xcode DerivedData, and app-specific caches (Chrome, Docker, npm, etc.) (shows size before deleting). |
+| 2 | **Memory Pressure Report** | Displays VM statistics (Free, Active, Inactive, Wired, Compressed) and top RAM-consuming processes — replaces counterproductive `purge`. |
 | 3 | **Network Booster** | Flushes DNS, configures TCP buffers, resets interface with confirmation. |
 | 4 | **Maintenance Scripts** | Manually runs daily/weekly/monthly periodic scripts. |
 | 5 | **Flush Print Queue** | Cancels all stuck print jobs. |
@@ -76,6 +76,24 @@ chmod +x mac_optimizer.sh
 
 ```bash
 ./mac_optimizer.sh --dry-run
+```
+
+### 5. Run with Backup Mode
+
+```bash
+./mac_optimizer.sh --backup
+```
+
+### 6. Run Non-Interactively
+
+```bash
+./mac_optimizer.sh --yes
+```
+
+### 7. Show Version
+
+```bash
+./mac_optimizer.sh --version
 ```
 
 ---
