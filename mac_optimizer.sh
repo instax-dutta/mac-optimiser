@@ -89,15 +89,18 @@ require_min_version() {
 
 spinner() {
   local pid=$1
-  local spinstr
-  spinstr=$(printf '|/-\\')
+  local i=0
   while kill -0 "$pid" 2>/dev/null; do
-    printf " [%c] " "$spinstr"
-    spinstr=${spinstr#?}${spinstr%"${spinstr#?}"}
+    case $((i % 4)) in
+      0) printf "\b|" ;;
+      1) printf "\b/" ;;
+      2) printf "\b-" ;;
+      3) printf "\b\\" ;;
+    esac
+    i=$((i + 1))
     sleep 0.1
-    printf "\b\b\b\b\b\b"
   done
-  printf "      \b\b\b\b\b\b"
+  printf "\b"
 }
 
 run_cmd() {
@@ -293,20 +296,20 @@ run_maintenance() {
   fi
 
   if [[ "$DRY_RUN" == false ]]; then
-    echo -ne "${CYAN}→ Running daily maintenance...${NC}"
-    sudo periodic daily > /tmp/mac_opt_last.log 2>&1 &
+    echo -ne "${CYAN}→ Running daily maintenance... ${NC}"
+    (sudo periodic daily) > /tmp/mac_opt_last.log 2>&1 &
     spinner $!; wait $!
-    echo -e " ${GREEN}[✔]${NC}"; log_action "daily maintenance" 0
+    echo -e "${GREEN}[✔]${NC}"; log_action "daily maintenance" 0
 
-    echo -ne "${CYAN}→ Running weekly maintenance...${NC}"
-    sudo periodic weekly >> /tmp/mac_opt_last.log 2>&1 &
+    echo -ne "${CYAN}→ Running weekly maintenance... ${NC}"
+    (sudo periodic weekly) >> /tmp/mac_opt_last.log 2>&1 &
     spinner $!; wait $!
-    echo -e " ${GREEN}[✔]${NC}"; log_action "weekly maintenance" 0
+    echo -e "${GREEN}[✔]${NC}"; log_action "weekly maintenance" 0
 
-    echo -ne "${CYAN}→ Running monthly maintenance...${NC}"
-    sudo periodic monthly >> /tmp/mac_opt_last.log 2>&1 &
+    echo -ne "${CYAN}→ Running monthly maintenance... ${NC}"
+    (sudo periodic monthly) >> /tmp/mac_opt_last.log 2>&1 &
     spinner $!; wait $!
-    echo -e " ${GREEN}[✔]${NC}"; log_action "monthly maintenance" 0
+    echo -e "${GREEN}[✔]${NC}"; log_action "monthly maintenance" 0
   else
     echo -e "${YELLOW}[DRY] would run: sudo periodic daily weekly monthly${NC}"
   fi
@@ -331,8 +334,8 @@ reindex_spotlight() {
   if confirm_yn "Reindex Spotlight?"; then
     sudo -v || { echo -e "${RED}sudo authentication failed.${NC}"; return 1; }
     if [[ "$DRY_RUN" == false ]]; then
-      echo -ne "${CYAN}→ Requesting Spotlight reindex...${NC}"
-      sudo mdutil -E / > /tmp/mac_opt_last.log 2>&1 &
+      echo -ne "${CYAN}→ Requesting Spotlight reindex... ${NC}"
+      (sudo mdutil -E /) > /tmp/mac_opt_last.log 2>&1 &
       spinner $!; wait $!
       echo -e " ${GREEN}[✔]${NC}"
       log_action "Spotlight reindex" 0
